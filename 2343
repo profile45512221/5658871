@@ -1,0 +1,519 @@
+#!/bin/sh
+
+# Minimal installer to bootstrap bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "Bash not detected. Installing bash first..."
+    
+    if [ -e /etc/opkg ]; then
+        opkg update 2>&1 | grep -v "^Signature"
+        opkg install bash
+    elif [ -e /etc/apt/sources.list.d ]; then
+        apt update
+        apt install -y bash
+    fi
+    
+    # Re-run script with bash
+    if command -v bash >/dev/null 2>&1; then
+        exec bash "$0" "$@"
+    else
+        echo "Failed to install bash. Exiting."
+        exit 1
+    fi
+fi
+
+clear
+_version="2.0"
+_oscam_url="https://friendsforroland.github.io/oscam"
+_config_url="https://codeberg.org/profile371/os/raw/branch/main"
+_channel_url="https://api.github.com/repos/ciefp/ciefpsettings-enigma2-zipped/contents/"
+MARKER_FILE="/etc/first_run_done"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# Download tool detection
+DOWNLOAD_TOOL=""
+
+# Parse command line arguments
+while getopts "t:S:P:u:p:" opt; do
+  case ${opt} in
+    t )
+      _my_reader_type=${OPTARG}
+      ;;
+    S )
+      _my_reader_server=${OPTARG}
+      ;;
+    P )
+      _my_reader_port=${OPTARG}
+      ;;
+    u )
+      _my_reader_user=${OPTARG}
+      ;;
+    p )
+      _my_reader_pass=${OPTARG}
+      ;;
+  esac
+done
+
+# Detect available download tool
+detect_download_tool() {
+    if command -v curl &> /dev/null; then
+        DOWNLOAD_TOOL="curl"
+    elif command -v wget &> /dev/null; then
+        DOWNLOAD_TOOL="wget"
+    else
+        echo -e "${RED}Error: Neither curl nor wget is available!${NC}"
+        exit 1
+    fi
+}
+
+# Universal download function
+download_file() {
+    local url="$1"
+    local output="$2"
+    
+    if [ "$DOWNLOAD_TOOL" = "curl" ]; then
+        curl -s -k -L --connect-timeout 10 --max-time 30 -o "$output" "$url" 2>/dev/null
+        return $?
+    elif [ "$DOWNLOAD_TOOL" = "wget" ]; then
+        wget -q --no-check-certificate --timeout=30 -O "$output" "$url" 2>/dev/null
+        return $?
+    fi
+    return 1
+}
+
+# Universal fetch function for API calls
+fetch_url() {
+    local url="$1"
+    
+    if [ "$DOWNLOAD_TOOL" = "curl" ]; then
+        curl -s -k -L --connect-timeout 10 --max-time 30 "$url" 2>/dev/null
+    elif [ "$DOWNLOAD_TOOL" = "wget" ]; then
+        wget -q --no-check-certificate --timeout=30 -O - "$url" 2>/dev/null
+    fi
+}
+
+# First run initialization
+first_run_init() {
+    if [ ! -f "$MARKER_FILE" ]; then
+        echo "First run... init..."
+        echo "Please wait..."
+        
+        if [ -e /etc/opkg ]; then
+            opkg update > /dev/null 2>&1
+            opkg install curl > /dev/null 2>&1
+            opkg install bash > /dev/null 2>&1
+            opkg install wget > /dev/null 2>&1
+            opkg install unzip > /dev/null 2>&1
+        fi
+
+        if [ -e /etc/apt/sources.list.d ]; then
+            apt update > /dev/null 2>&1
+            apt install -y curl > /dev/null 2>&1
+            apt install -y bash > /dev/null 2>&1
+            apt install -y wget > /dev/null 2>&1
+            apt install -y unzip > /dev/null 2>&1
+        fi
+
+        touch "$MARKER_FILE"
+        clear
+    fi
+}
+
+# Detect distribution
+detect_distribution() {
+    _my_distribution=$(cat /etc/issue |grep "\S"|sed -e "s/[Ww]elcome to //g" | awk '{print $1}')
+
+    if cat /etc/issue | grep -i openatv > /dev/null 2>&1; then 
+        _my_distribution="openATV"
+    elif cat /etc/issue | grep -i openpli > /dev/null 2>&1; then 
+        _my_distribution="OpenPLi"
+    elif cat /etc/issue | grep -i openHDF > /dev/null 2>&1; then 
+        _my_distribution="OpenHDF"
+    elif cat /etc/issue | grep -i teamBlue > /dev/null 2>&1; then 
+        _my_distribution="teamBlue"
+    elif cat /etc/issue | grep -i egami > /dev/null 2>&1; then 
+        _my_distribution="Egami"
+    elif cat /etc/issue | grep -i openBH > /dev/null 2>&1; then 
+        _my_distribution="OpenBh"
+    elif [ -r /usr/lib/enigma2/python/Plugins/SystemPlugins/VTIPanel ] > /dev/null 2>&1; then 
+        _my_distribution="VTi"
+    elif [ -e /etc/apt/sources.list.d/gp4-unstable-all-feed.list ] > /dev/null 2>&1; then
+        _my_distribution="GP4"
+    elif [ -r /usr/lib/enigma2/python/Plugins/Extensions/AddOnManager ] > /dev/null 2>&1; then
+        _my_distribution="Merlin"
+    elif [ -r /usr/lib/enigma2/python/DE ] > /dev/null 2>&1; then
+        _my_distribution="Dream-Elite"
+    elif [ -r /usr/ppteam ] > /dev/null 2>&1; then
+        _my_distribution="Peter Pan"
+    elif [ -e /etc/apt/sources.list.d/dep-all-feed.list ] > /dev/null 2>&1; then
+        _my_distribution="Dream-Elite"
+    elif grep -qs -i "newnigma2" /etc/image-version > /dev/null 2>&1; then
+        _my_distribution="newnigma2"
+    elif grep -qs -i "dreamboxupdate" /etc/apt/sources.list.d/all-feed.list && [ ! -f /etc/apt/sources.list.d/dep-all-feed.list ] > /dev/null 2>&1; then
+        _my_distribution="opendreambox"
+    elif grep -qs -i "SatLodge" /etc/issue.net > /dev/null 2>&1; then
+        _my_distribution="Sat-Lodge"
+    fi
+}
+
+# Detect box name
+detect_boxname() {
+    SESSIONID=$(fetch_url "http://localhost/web/session" | grep -o -E "<e2sessionid>(.*)</e2sessionid>" |sed "s|.*<e2sessionid>\(.*\)</e2sessionid>.*|\\1|")
+    _boxname=$(fetch_url "http://localhost/web/deviceinfo?&sessionid=$SESSIONID" | grep -o -E "<e2devicename>(.*)</e2devicename>" |sed "s|.*<e2devicename>\(.*\)</e2devicename>.*|\\1|")
+
+    if [[ "$_boxname" == *UHD* ]]; then
+        _boxname="${_boxname//UHD/}"
+    fi
+
+    if [[ "$_boxname" == " "* ]]; then
+        _boxname="${_boxname#" "}"
+    fi
+}
+
+# Detect package manager
+detect_package_manager() {
+    if [ -e /etc/opkg ]; then
+        _exec_cmd="opkg"
+    elif [ -e /etc/apt/sources.list.d ]; then
+        _exec_cmd="apt -y"
+    else
+        echo "Neither opkg nor apt was found ... bailing out"
+        exit 0
+    fi
+}
+
+# Function to install OSCam
+install_oscam() {
+    echo -e "${YELLOW}Installing OSCam...${NC}"
+    
+    # Install dependencies
+    $_exec_cmd install libdvbcsa1 >/dev/null 2>&1
+    $_exec_cmd install libpcsclite1 >/dev/null 2>&1
+    $_exec_cmd install libusb-1.0-0 >/dev/null 2>&1
+    
+    # Detect architecture
+    if [ -n "$(uname -m | grep armv7l)" ]; then
+        _arch=open_arm
+    elif [ -n "$(uname -m | grep aarch64)" ]; then
+        _arch=aarch64
+    elif [ -n "$(uname -m | grep mips)" ]; then
+        _arch=mipsel
+    else
+        echo -e "${RED}Sorry, your device does not have the proper architecture${NC}"
+        exit 1
+    fi
+    
+    # Get latest OSCam version
+    echo -e "${YELLOW}Fetching latest OSCam version...${NC}"
+    download_file "${_oscam_url}/version.txt" "/tmp/version.txt"
+    _oscam_version=$(grep "version=" /tmp/version.txt | cut -c 9-)
+    
+    if [ -z "$_oscam_version" ]; then
+        echo -e "${RED}Error: Could not determine OSCam version${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}Latest OSCam version: $_oscam_version${NC}"
+    
+    # Create necessary directories
+    mkdir -p /usr/bin > /dev/null 2>&1
+    mkdir -p /etc/tuxbox/config > /dev/null 2>&1
+    
+    # Download OSCam binary
+    echo -e "${YELLOW}Downloading OSCam binary...${NC}"
+    if [ -e /etc/apt/sources.list.d ]; then
+        download_file "${_oscam_url}/oscams/oscam-dream_${_arch}-${_oscam_version}" "/usr/bin/oscam_bin"
+    else
+        download_file "${_oscam_url}/oscams/oscam-${_arch}-${_oscam_version}" "/usr/bin/oscam_bin"
+    fi
+    
+    if [ ! -s /usr/bin/oscam_bin ]; then
+        echo -e "${RED}Error: Failed to download OSCam binary${NC}"
+        exit 1
+    fi
+    
+    chmod +x /usr/bin/oscam_bin > /dev/null 2>&1
+    
+    # Download config files from your hosting (only 3 files needed)
+    echo -e "${YELLOW}Downloading configuration files...${NC}"
+    download_file "${_config_url}/oscam.conf" "/etc/tuxbox/config/oscam.conf"
+    download_file "${_config_url}/oscam.user" "/etc/tuxbox/config/oscam.user"
+    download_file "${_config_url}/oscam.dvbapi" "/etc/tuxbox/config/oscam.dvbapi"
+    
+    # Create oscam.server with reader config
+    _readerfile="/etc/tuxbox/config/oscam.server"
+    
+    # Create basic oscam.server
+    cat > $_readerfile << 'EOF'
+# oscam.server configuration file
+# Auto-generated by unified installer
+
+[reader]
+label            = emulator
+protocol         = emu
+device           = emulator
+caid             = 2600
+detect           = cd
+group            = 1
+emmcache         = 1,1,2,0
+emu_auproviders  = 4AE1:000011,000014
+EOF
+    
+    if [ -n "$_my_reader_user" ]; then
+        echo ""                                                        >> $_readerfile
+        echo "## User's card server configuration"                    >> $_readerfile
+        echo "[reader]"                                                >> $_readerfile
+        echo "label             = cardserver"                          >> $_readerfile
+        echo "protocol          = $_my_reader_type"                    >> $_readerfile
+        echo "device            = $_my_reader_server,$_my_reader_port" >> $_readerfile
+        echo "user              = $_my_reader_user"                    >> $_readerfile
+        echo "password          = $_my_reader_pass"                    >> $_readerfile
+        echo "inactivitytimeout = 30"                                  >> $_readerfile
+        echo "group             = 1"                                   >> $_readerfile
+        echo "cccversion        = 2.1.2"                               >> $_readerfile
+        echo "ccckeepalive      = 1"                                   >> $_readerfile
+        echo "disablecrccws     = 1"                                   >> $_readerfile
+    fi
+    
+    # Start OSCam using direct command
+    echo -e "${YELLOW}Starting OSCam...${NC}"
+    killall -9 oscam_bin > /dev/null 2>&1
+    sleep 1
+    /usr/bin/oscam_bin -b -c /etc/tuxbox/config > /dev/null 2>&1
+
+    # Add cron job for auto-start on reboot
+    echo -e "${YELLOW}Setting up auto-start on reboot...${NC}"
+    cron_job="@reboot /usr/bin/oscam_bin -b -c /etc/tuxbox/config"
+    if ! crontab -l 2>/dev/null | grep -q "oscam_bin"; then
+        (crontab -l 2>/dev/null | grep -v "oscam_bin"; echo "$cron_job") | crontab -
+    fi
+
+    echo -e "${GREEN}OSCam installation completed!${NC}"
+
+    echo -e "${GREEN}Version: $_oscam_version${NC}"
+    echo -e "${GREEN}To update OSCam, simply run this installer again${NC}"
+}
+
+# Function to install channel list
+install_channels() {
+    echo -e "${YELLOW}Installing channel list...${NC}"
+    
+    STATIC_NAMES=("ciefp-E2-75E-34W")
+    DEST_ENIGMA2="/etc/enigma2/"
+    DEST_TUXBOX="/etc/tuxbox/"
+    TMP_DIR="/tmp"
+    
+    # Fetch available files from GitHub
+    echo -e "${YELLOW}Fetching available lists from GitHub...${NC}"
+    
+    response=$(fetch_url "$_channel_url")
+    
+    if [ -z "$response" ]; then
+        echo -e "${RED}Error: Unable to fetch file list from GitHub${NC}"
+        return 1
+    fi
+    
+    available_files=()
+    file_names=()
+    
+    for static_name in "${STATIC_NAMES[@]}"; do
+        matching_file=$(echo "$response" | grep -o "$static_name[^\"]*\.zip" | head -1)
+        
+        if [ -z "$matching_file" ]; then
+            matching_file=$(echo "$response" | tr ',' '\n' | grep "name" | grep "$static_name" | cut -d'"' -f4 | head -1)
+        fi
+        
+        if [ -n "$matching_file" ]; then
+            available_files+=("$static_name")
+            file_names+=("$matching_file")
+        fi
+    done
+    
+    if [ ${#available_files[@]} -eq 0 ]; then
+        echo -e "${YELLOW}Using fallback filename...${NC}"
+        available_files+=("ciefp-E2-75E-34W")
+        file_names+=("ciefp-E2-75E-34W.zip")
+    fi
+    
+    # Auto-select first option
+    selected_index=0
+    selected_item="${available_files[selected_index]}"
+    selected_file="${file_names[selected_index]}"
+    
+    echo -e "${GREEN}Selected: $selected_item${NC}"
+    
+    # Download and install
+    local url="https://github.com/ciefp/ciefpsettings-enigma2-zipped/raw/refs/heads/master/$selected_file"
+    local download_path="$TMP_DIR/$selected_file"
+    local extract_path="$TMP_DIR/$selected_item"
+    
+    echo -e "${YELLOW}Stopping Enigma2...${NC}"
+    init 4
+    sleep 2
+    
+    echo -e "${YELLOW}Cleaning old channel lists...${NC}"
+    rm -f /etc/enigma2/userbouquet*
+    
+    echo -e "${YELLOW}Downloading $selected_file...${NC}"
+    
+    if ! download_file "$url" "$download_path"; then
+        echo -e "${RED}Error: Failed to download $selected_file${NC}"
+        init 3
+        return 1
+    fi
+    
+    echo -e "${YELLOW}Extracting $selected_file...${NC}"
+    
+    mkdir -p "$extract_path"
+    
+    if ! unzip -q "$download_path" -d "$extract_path"; then
+        echo -e "${RED}Error: Failed to extract $selected_file${NC}"
+        rm -f "$download_path"
+        init 3
+        return 1
+    fi
+    
+    echo -e "${YELLOW}Installing files...${NC}"
+    
+    # Copy all files and overwrite existing ones
+    find "$extract_path" -type f | while read -r file; do
+        basename_file=$(basename "$file")
+        
+        case "$basename_file" in
+            "satellites.xml")
+                cp "$file" "$DEST_TUXBOX/" 2>/dev/null
+                echo "Updated satellites.xml"
+                ;;
+            "lamedb")
+                cp "$file" "$DEST_ENIGMA2/"
+                echo "Updated lamedb"
+                ;;
+            "bouquets.tv")
+                cp "$file" "$DEST_ENIGMA2/"
+                echo "Updated bouquets.tv"
+                ;;
+            "bouquets.radio")
+                cp "$file" "$DEST_ENIGMA2/"
+                echo "Updated bouquets.radio"
+                ;;
+            *.tv|*.radio)
+                cp "$file" "$DEST_ENIGMA2/"
+                echo "Installed $basename_file"
+                ;;
+        esac
+    done
+    
+    # Cleanup temporary files
+    rm -f "$download_path"
+    rm -rf "$extract_path"
+    
+    # Reload service list
+    SESSIONID=$(fetch_url "http://localhost/web/session" |grep -o -E "<e2sessionid>(.*)</e2sessionid>" |sed "s|.*<e2sessionid>\(.*\)</e2sessionid>.*|\\1|")
+    fetch_url "http://127.0.0.1/web/servicelistreload?mode=0&sessionid=$SESSIONID" > /dev/null 2>&1
+    
+    echo -e "${GREEN}$selected_item installed successfully!${NC}"
+    
+    echo -e "${YELLOW}Restarting Enigma2...${NC}"
+    init 3
+}
+
+# Header function
+show_header() {
+    clear
+    echo "for autoinstall use:"
+    echo " wget -q -O - [URL] | bash -s -- -t PROTO -S SERVER -P PORT -u USER -p PASS"
+    echo ""
+    echo "   ____                               ____           __        ____             "
+    echo "  / __ \______________ _____ ___     /  _/___  _____/ /_____ _/ / /__  _____    "
+    echo " / / / / ___/ ___/ __ \/ __ \__ \    / // __ \/ ___/ __/ __ \/ / / _ \/ ___/    "
+    echo "/ /_/ (__  ) /__/ /_/ / / / / / /  _/ // / / (__  ) /_/ /_/ / / /  __/ /        "
+    echo "\____/____/\___/\__,_/_/ /_/ /_/  /___/_/ /_/____/\__/\__,_/_/_/\___/_/         "
+    echo "                                                                                "
+    echo "                                          Unified Installer v${_version}        "
+    echo ""
+}
+
+# Main menu
+main_menu() {
+    show_header
+    echo -e "${GREEN}Running on $_my_distribution - $_boxname${NC}"
+    echo -e "${YELLOW}######*** Main Menu ***######${NC}"
+    echo -e " 1) Install OSCam"
+    echo -e " 2) Install Channel List (Ciefp Settings)"
+    echo -e " 3) Install Both OSCam + Channels"
+    echo -e " 0) Exit"
+    echo -e ""
+    
+    # Ensure we're reading from terminal, not pipe
+    if [ -t 0 ]; then
+        read -p "Choose an option: " choice
+    else
+        # Reopen stdin from terminal
+        exec < /dev/tty
+        read -p "Choose an option: " choice
+    fi
+    
+    # Validate input is not empty
+    if [ -z "$choice" ]; then
+        echo -e "${RED}No input detected!${NC}"
+        sleep 2
+        main_menu
+        return
+    fi
+    
+    case $choice in
+        1)
+            install_oscam
+            echo ""
+            echo "Press any key to continue..."
+            read -n 1 -s < /dev/tty
+            main_menu
+            ;;
+        2)
+            install_channels
+            echo ""
+            echo -e "${YELLOW}Enigma2 has been restarted. Exiting installer.${NC}"
+            exit 0
+            ;;
+        3)
+            install_oscam
+            sleep 2
+            install_channels
+            echo ""
+            echo -e "${GREEN}Installation complete! Enigma2 has been restarted.${NC}"
+            exit 0
+            ;;
+        0)
+            echo "Goodbye!"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Invalid option!${NC}"
+            sleep 2
+            main_menu
+            ;;
+    esac
+}
+
+# Initialize
+first_run_init
+detect_download_tool
+detect_distribution
+detect_boxname
+detect_package_manager
+
+# Check if running with arguments (auto-install mode)
+if [ -n "$_my_reader_user" ]; then
+    echo "Auto-install mode detected..."
+    install_oscam
+    install_channels
+    echo "Auto-installation completed!"
+    exit 0
+else
+    # Interactive mode
+    main_menu
+fi
