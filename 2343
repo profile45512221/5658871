@@ -411,6 +411,14 @@ install_channels() {
     rm -f "$download_path"
     rm -rf "$extract_path"
     
+    # Clean up unwanted bouquets from bouquets.tv
+    echo -e "${YELLOW}Cleaning unwanted bouquets...${NC}"
+    if [ -f "$DEST_ENIGMA2/bouquets.tv" ]; then
+        sed -i '/userbouquet.ciefp_19e_skydemovies.tv/d' "$DEST_ENIGMA2/bouquets.tv"
+        sed -i '/userbouquet.ciefp_19e_skydedocu.tv/d' "$DEST_ENIGMA2/bouquets.tv"
+        sed -i '/userbouquet.ciefp_19e_skydesport.tv/d' "$DEST_ENIGMA2/bouquets.tv"
+    fi
+    
     # Reload service list
     SESSIONID=$(fetch_url "http://localhost/web/session" |grep -o -E "<e2sessionid>(.*)</e2sessionid>" |sed "s|.*<e2sessionid>\(.*\)</e2sessionid>.*|\\1|")
     fetch_url "http://127.0.0.1/web/servicelistreload?mode=0&sessionid=$SESSIONID" > /dev/null 2>&1
