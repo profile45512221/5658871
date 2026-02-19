@@ -285,15 +285,59 @@ EOF
     sleep 1
     /usr/bin/oscam_bin -b -c /etc/tuxbox/config > /dev/null 2>&1
 
-    # Add cron job for auto-start on reboot
-    echo -e "${YELLOW}Setting up auto-start on reboot...${NC}"
-    cron_job="@reboot /usr/bin/oscam_bin -b -c /etc/tuxbox/config"
-    if ! crontab -l 2>/dev/null | grep -q "oscam_bin"; then
-        (crontab -l 2>/dev/null | grep -v "oscam_bin"; echo "$cron_job") | crontab -
+    # Check if cron is available, install if not
+    echo -e "${YELLOW}Checking cron availability...${NC}"
+    if ! command -v crontab > /dev/null 2>&1; then
+        echo -e "${YELLOW}Cron not found, attempting to install...${NC}"
+        if command -v opkg > /dev/null 2>&1; then
+            opkg update > /dev/null 2>&1
+            opkg install cronie > /dev/null 2>&1 || opkg install cron > /dev/null 2>&1
+        elif command -v apt-get > /dev/null 2>&1; then
+            apt-get install -y cron > /dev/null 2>&1
+        elif command -v yum > /dev/null 2>&1; then
+            yum install -y cronie > /dev/null 2>&1
+        fi
+    fi
+
+    # Ensure cron daemon is running
+    if command -v crontab > /dev/null 2>&1; then
+        if ! pgrep -x "crond" > /dev/null 2>&1 && ! pgrep -x "cron" > /dev/null 2>&1; then
+            echo -e "${YELLOW}Starting cron daemon...${NC}"
+            crond > /dev/null 2>&1 || cron > /dev/null 2>&1 || true
+        fi
+
+        # Remove any rc.local entry from a previous install to avoid double start
+        if [ -f /etc/rc.local ] && grep -q "oscam_bin" /etc/rc.local; then
+            echo -e "${YELLOW}Removing legacy rc.local entry...${NC}"
+            sed -i '/oscam_bin/d' /etc/rc.local
+        fi
+
+        # Add cron job for auto-start on reboot
+        echo -e "${YELLOW}Setting up auto-start on reboot...${NC}"
+        cron_job="@reboot /usr/bin/oscam_bin -b -c /etc/tuxbox/config"
+        if ! crontab -l 2>/dev/null | grep -q "oscam_bin"; then
+            (crontab -l 2>/dev/null | grep -v "oscam_bin"; echo "$cron_job") | crontab -
+        fi
+        echo -e "${GREEN}Auto-start configured via cron.${NC}"
+    else
+        # Fallback: use /etc/rc.local if cron couldn't be installed
+        echo -e "${YELLOW}Cron unavailable, falling back to rc.local...${NC}"
+
+        # Remove any crontab entry just in case (shouldn't exist, but be safe)
+        (crontab -l 2>/dev/null | grep -v "oscam_bin") | crontab - 2>/dev/null || true
+
+        if [ -f /etc/rc.local ]; then
+            if ! grep -q "oscam_bin" /etc/rc.local; then
+                sed -i '/^exit 0/i /usr/bin/oscam_bin -b -c /etc/tuxbox\/config' /etc/rc.local
+                echo -e "${GREEN}Auto-start configured via rc.local.${NC}"
+            fi
+        else
+            echo -e "${RED}WARNING: Could not configure auto-start. Please add manually:${NC}"
+            echo -e "${YELLOW}/usr/bin/oscam_bin -b -c /etc/tuxbox/config${NC}"
+        fi
     fi
 
     echo -e "${GREEN}OSCam installation completed!${NC}"
-
     echo -e "${GREEN}Version: $_oscam_version${NC}"
     echo -e "${GREEN}To update OSCam, simply run this installer again${NC}"
 }
