@@ -38,7 +38,7 @@ NC='\033[0m'
 DOWNLOAD_TOOL=""
 
 # Parse command line arguments
-while getopts "t:S:P:u:p:" opt; do
+while getopts "t:S:P:u:p:n" opt; do
   case ${opt} in
     t )
       _my_reader_type=${OPTARG}
@@ -54,6 +54,9 @@ while getopts "t:S:P:u:p:" opt; do
       ;;
     p )
       _my_reader_pass=${OPTARG}
+      ;;
+    n )
+      _skip_channels=true
       ;;
   esac
 done
@@ -531,7 +534,7 @@ install_channels() {
 show_header() {
     clear
     echo "for autoinstall use:"
-    echo " wget -q -O - [URL] | bash -s -- -t PROTO -S SERVER -P PORT -u USER -p PASS"
+    echo " wget -q -O - [URL] | bash -s -- -t PROTO -S SERVER -P PORT -u USER -p PASS [-n]"
     echo ""
     echo "   ____                               ____           __        ____             "
     echo "  / __ \______________ _____ ___     /  _/___  _____/ /_____ _/ / /__  _____    "
@@ -616,10 +619,13 @@ detect_package_manager
 if [ -n "$_my_reader_user" ]; then
     echo "Auto-install mode detected..."
     install_oscam
-    install_channels
+    if [ "$_skip_channels" = true ]; then
+        echo "Skipping channel list installation (-n flag set)."
+    else
+        install_channels
+    fi
     echo "Auto-installation completed!"
     exit 0
 else
-    # Interactive mode
     main_menu
 fi
