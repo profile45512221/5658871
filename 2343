@@ -189,6 +189,29 @@ detect_package_manager() {
     fi
 }
 
+# Detect if newer distro requiring alternate config
+detect_conf_variant() {
+    _use_conf2=false
+    if [ "$_my_distribution" = "openATV" ]; then
+        _atv_ver=$(cat /etc/issue | grep -oP '(?<=openATV )\S+' | head -1)
+        if [ -n "$_atv_ver" ]; then
+            _atv_major=$(echo "$_atv_ver" | cut -d. -f1)
+            _atv_minor=$(echo "$_atv_ver" | cut -d. -f2)
+            _atv_patch=$(echo "$_atv_ver" | cut -d. -f3)
+            _atv_patch=${_atv_patch:-0}
+            if [ "$_atv_major" -gt 7 ] || \
+               { [ "$_atv_major" -eq 7 ] && [ "$_atv_minor" -gt 6 ]; } || \
+               { [ "$_atv_major" -eq 7 ] && [ "$_atv_minor" -eq 6 ] && [ "$_atv_patch" -ge 1 ]; }; then
+                _use_conf2=true
+            fi
+        fi
+    elif [ "$_my_distribution" = "OpenPLi" ]; then
+        if cat /etc/issue | grep -qi "scarthgap"; then
+            _use_conf2=true
+        fi
+    fi
+}
+
 # Function to install OSCam
 install_oscam() {
     echo -e "${YELLOW}Installing OSCam...${NC}"
@@ -241,11 +264,18 @@ install_oscam() {
     
     chmod +x /usr/bin/oscam_bin > /dev/null 2>&1
     
-    # Download config files from your hosting (only 3 files needed)
+    # Download config files
     echo -e "${YELLOW}Downloading configuration files...${NC}"
-    download_file "${_config_url}/oscam.conf" "/etc/tuxbox/config/oscam.conf"
     download_file "${_config_url}/oscam.user" "/etc/tuxbox/config/oscam.user"
     download_file "${_config_url}/oscam.dvbapi" "/etc/tuxbox/config/oscam.dvbapi"
+
+    # Download correct oscam.conf based on distro variant
+    if [ "$_use_conf2" = true ]; then
+        echo -e "${YELLOW}Detected newer distro — downloading alternate oscam.conf...${NC}"
+        download_file "${_config_url}/oscam.conf2" "/etc/tuxbox/config/oscam.conf"
+    else
+        download_file "${_config_url}/oscam.conf" "/etc/tuxbox/config/oscam.conf"
+    fi
     
     # Create oscam.server with reader config
     _readerfile="/etc/tuxbox/config/oscam.server"
@@ -511,10 +541,18 @@ install_channels() {
     # Clean up unwanted bouquets from bouquets.tv
     echo -e "${YELLOW}Cleaning unwanted bouquets...${NC}"
     if [ -f "$DEST_ENIGMA2/bouquets.tv" ]; then
-        sed -i '/userbouquet.ciefp_19e_skydemovies.tv/d' "$DEST_ENIGMA2/bouquets.tv"
-        sed -i '/userbouquet.ciefp_19e_skydedocu.tv/d' "$DEST_ENIGMA2/bouquets.tv"
-        sed -i '/userbouquet.ciefp_19e_skydesport.tv/d' "$DEST_ENIGMA2/bouquets.tv"
-        echo "Removed Sky DE bouquets from bouquets.tv"
+        if [ "$_use_conf2" = true ]; then
+            # Newer distro (OpenATV >= 7.6.1 or OpenPLi scarthgap)
+            sed -i '/userbouquet.ciefp_19e_skyde_icam.tv/d' "$DEST_ENIGMA2/bouquets.tv"
+            echo "Removed icam bouquet from bouquets.tv"
+            rm -f /etc/enigma2/whitelist_streamrelay
+        else
+            # Older distro — standard cleanup
+            sed -i '/userbouquet.ciefp_19e_skydemovies.tv/d' "$DEST_ENIGMA2/bouquets.tv"
+            sed -i '/userbouquet.ciefp_19e_skydedocu.tv/d' "$DEST_ENIGMA2/bouquets.tv"
+            sed -i '/userbouquet.ciefp_19e_skydesport.tv/d' "$DEST_ENIGMA2/bouquets.tv"
+            echo "Removed Sky DE bouquets from bouquets.tv"
+        fi
     fi
     
     # Reload service list
@@ -614,6 +652,7 @@ detect_download_tool
 detect_distribution
 detect_boxname
 detect_package_manager
+detect_conf_variant
 
 # Check if running with arguments (auto-install mode)
 if [ -n "$_my_reader_user" ]; then
