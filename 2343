@@ -22,7 +22,7 @@ if [ -z "$BASH_VERSION" ]; then
 fi
 
 clear
-_version="2.0"
+_version="3.0"
 _oscam_url="https://friendsforroland.github.io/oscam"
 _config_url="https://raw.githubusercontent.com/profile45512221/os/refs/heads/main"
 _channel_url="https://api.github.com/repos/ciefp/ciefpsettings-enigma2-zipped/contents/"
