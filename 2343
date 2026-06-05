@@ -193,7 +193,7 @@ detect_package_manager() {
 detect_conf_variant() {
     _use_conf2=false
     if [ "$_my_distribution" = "openATV" ]; then
-        _atv_ver=$(cat /etc/issue | grep -oP '(?<=openATV )\S+' | head -1)
+        _atv_ver=$(cat /etc/issue | grep -i "openatv" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         if [ -n "$_atv_ver" ]; then
             _atv_major=$(echo "$_atv_ver" | cut -d. -f1)
             _atv_minor=$(echo "$_atv_ver" | cut -d. -f2)
