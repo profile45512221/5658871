@@ -220,6 +220,7 @@ install_oscam() {
     $_exec_cmd install libdvbcsa1 >/dev/null 2>&1
     $_exec_cmd install libpcsclite1 >/dev/null 2>&1
     $_exec_cmd install libusb-1.0-0 >/dev/null 2>&1
+    $_exec_cmd install libcrypto-compat >/dev/null 2>&1
     
     # Detect architecture
     if [ -n "$(uname -m | grep armv7l)" ]; then
