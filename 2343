@@ -59,13 +59,13 @@ validate_installer_key() {
     local key="$_installer_key"
     local year month day
 
-    # Must contain exactly 16 digits
+    
     if [[ ! "$key" =~ ^[0-9]{16}$ ]]; then
         echo -e "${RED}ERROR: Invalid or Bad Request.${NC}"
         exit 1
     fi
 
-    # First eight digits: YYYYMMDD
+    
     year="${key:0:4}"
     month="${key:4:2}"
     day="${key:6:2}"
