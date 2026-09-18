@@ -61,7 +61,7 @@ validate_installer_key() {
 
     # Must contain exactly 16 digits
     if [[ ! "$key" =~ ^[0-9]{16}$ ]]; then
-        echo -e "${RED}ERROR: Invalid or missing installation key.${NC}"
+        echo -e "${RED}ERROR: Invalid or Bad Request.${NC}"
         exit 1
     fi
 
@@ -73,7 +73,7 @@ validate_installer_key() {
     if (( 10#$year < 2020 || 10#$year > 2099 ||
           10#$month < 1 || 10#$month > 12 ||
           10#$day < 1 || 10#$day > 31 )); then
-        echo -e "${RED}ERROR: Invalid installation key date.${NC}"
+        echo -e "${RED}ERROR: Invalid data.${NC}"
         exit 1
     fi
 }
