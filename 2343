@@ -38,28 +38,45 @@ NC='\033[0m'
 DOWNLOAD_TOOL=""
 
 # Parse command line arguments
-while getopts "t:S:P:u:p:n" opt; do
-  case ${opt} in
-    t )
-      _my_reader_type=${OPTARG}
-      ;;
-    S )
-      _my_reader_server=${OPTARG}
-      ;;
-    P )
-      _my_reader_port=${OPTARG}
-      ;;
-    u )
-      _my_reader_user=${OPTARG}
-      ;;
-    p )
-      _my_reader_pass=${OPTARG}
-      ;;
-    n )
-      _skip_channels=true
-      ;;
-  esac
+while getopts "t:S:P:u:p:nk:" opt; do
+    case "$opt" in
+        t) _my_reader_type="$OPTARG" ;;
+        S) _my_reader_server="$OPTARG" ;;
+        P) _my_reader_port="$OPTARG" ;;
+        u) _my_reader_user="$OPTARG" ;;
+        p) _my_reader_pass="$OPTARG" ;;
+        n) _skip_channels=true ;;
+        k) _installer_key="$OPTARG" ;;
+        *)
+            echo "Invalid arguments."
+            exit 1
+            ;;
+    esac
 done
+
+# Validate installation/order key
+validate_installer_key() {
+    local key="$_installer_key"
+    local year month day
+
+    # Must contain exactly 16 digits
+    if [[ ! "$key" =~ ^[0-9]{16}$ ]]; then
+        echo -e "${RED}ERROR: Invalid or missing installation key.${NC}"
+        exit 1
+    fi
+
+    # First eight digits: YYYYMMDD
+    year="${key:0:4}"
+    month="${key:4:2}"
+    day="${key:6:2}"
+
+    if (( 10#$year < 2020 || 10#$year > 2099 ||
+          10#$month < 1 || 10#$month > 12 ||
+          10#$day < 1 || 10#$day > 31 )); then
+        echo -e "${RED}ERROR: Invalid installation key date.${NC}"
+        exit 1
+    fi
+}
 
 # Detect available download tool
 detect_download_tool() {
@@ -648,6 +665,7 @@ main_menu() {
 }
 
 # Initialize
+validate_installer_key
 first_run_init
 detect_download_tool
 detect_distribution
